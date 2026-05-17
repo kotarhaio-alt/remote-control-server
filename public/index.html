@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>لوحة التحكم عن بعد</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0f0f0f; color: #fff; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; min-height: 100vh; padding: 16px; }
+    #login-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; gap: 16px; }
+    #login-screen h1 { font-size: 24px; margin-bottom: 8px; }
+    #login-screen input { padding: 12px 20px; border-radius: 12px; border: 1px solid #333; background: #1a1a1a; color: #fff; font-size: 16px; width: 280px; text-align: center; }
+    #login-screen button { padding: 12px 40px; border-radius: 12px; border: none; background: #3C3489; color: #fff; font-size: 16px; cursor: pointer; width: 280px; }
+    #login-screen button:hover { background: #4a40a8; }
+    #login-error { color: #f87171; font-size: 14px; display: none; }
+    #main-screen { display: none; flex-direction: column; align-items: center; width: 100%; }
+    header { width: 100%; max-width: 500px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    h1 { font-size: 18px; font-weight: 500; }
+    #status-badge { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 4px 12px; border-radius: 99px; background: #1e1e1e; border: 1px solid #333; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #555; }
+    .dot.online { background: #4ade80; }
+    .dot.offline { background: #f87171; }
+    #phone-screen { width: 100%; max-width: 360px; aspect-ratio: 9/19.5; background: #1a1a1a; border-radius: 24px; border: 2px solid #333; overflow: hidden; position: relative; cursor: crosshair; }
+    #screen-canvas { width: 100%; height: 100%; display: block; }
+    #offline-msg { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #555; font-size: 14px; }
+    .nav-btns { display: flex; gap: 12px; margin-top: 16px; }
+    .nav-btn { padding: 10px 24px; border-radius: 12px; border: 1px solid #333; background: #1a1a1a; color: #fff; font-size: 14px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .nav-btn:hover { background: #2a2a2a; }
+    .nav-btn span { font-size: 20px; }
+    .nav-label { font-size: 11px; color: #888; }
+    #fps-info { margin-top: 12px; font-size: 12px; color: #555; }
+  </style>
+</head>
+<body>
+
+<div id="login-screen">
+  <div style="font-size:48px">🖥️</div>
+  <h1>التحكم عن بعد</h1>
+  <input type="password" id="password-input" placeholder="كلمة المرور" />
+  <button onclick="doLogin()">دخول</button>
+  <div id="login-error">كلمة المرور غلط!</div>
+</div>
+
+<div id="main-screen">
+  <header>
+    <h1>التحكم عن بعد</h1>
+    <div id="status-badge">
+      <div class="dot" id="status-dot"></div>
+      <span id="status-text">جاري الاتصال...</span>
+    </div>
+  </header>
+  <div id="phone-screen">
+    <canvas id="screen-canvas"></canvas>
+    <div id="offline-msg">
+      <div style="font-size:48px">📱</div>
+      <div>في انتظار اتصال الهاتف...</div>
+    </div>
+  </div>
+  <div class="nav-btns">
+    <button class="nav-btn" onclick="sendKey('back')"><span>◁</span><div class="nav-label">رجوع</div></button>
+    <button class="nav-btn" onclick="sendKey('home')"><span>⬜</span><div class="nav-label">الرئيسية</div></button>
+    <button class="nav-btn" onclick="sendKey('recent')"><span>▣</span><div class="nav-label">التطبيقات</div></button>
+  </div>
+  <div id="fps-info">FPS: <span id="fps">0</span></div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  const socket = io();
+  const canvas = document.getElementById('screen-canvas');
+  const ctx = canvas.getContext('2d');
+  const offlineMsg = document.getElementById('offline-msg');
+  const statusDot = document.getElementById('status-dot');
+  const statusText = document.getElementById('status-text');
+  canvas.width = 720; canvas.height = 1560;
+
+  let frameCount = 0;
+  setInterval(() => { document.getElementById('fps').textContent = frameCount; frameCount = 0; }, 1000);
+
+  function doLogin() {
+    const pass = document.getElementById('password-input').value;
+    socket.emit('auth', pass);
+  }
+
+  document.getElementById('password-input').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') doLogin();
+  });
+
+  socket.on('auth-result', (data) => {
+    if (data.success) {
+      document.getElementById('login-screen').style.display = 'none';
+      document.getElementById('main-screen').style.display = 'flex';
+      socket.emit('register', 'browser');
+    } else {
+      document.getElementById('login-error').style.display = 'block';
+    }
+  });
+
+  socket.on('connect', () => { statusText.textContent = 'متصل بالسيرفر'; statusDot.className = 'dot online'; });
+  socket.on('disconnect', () => { statusText.textContent = 'انقطع الاتصال'; statusDot.className = 'dot offline'; });
+
+  socket.on('status', (data) => {
+    if (data.phone) { offlineMsg.style.display = 'none'; statusText.textContent = 'الهاتف متصل'; }
+    else { offlineMsg.style.display = 'flex'; statusText.textContent = 'الهاتف غير متصل'; }
+  });
+
+  socket.on('screen-frame', (base64) => {
+    const img = new Image();
+    img.onload = () => { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); frameCount++; };
+    img.src = 'data:image/jpeg;base64,' + base64;
+  });
+
+  const phoneScreen = document.getElementById('phone-screen');
+  function getPos(e) {
+    const rect = phoneScreen.getBoundingClientRect();
+    const t = e.touches ? e.touches[0] : e;
+    return { x: (t.clientX - rect.left) / rect.width, y: (t.clientY - rect.top) / rect.height };
+  }
+  phoneScreen.addEventListener('click', (e) => socket.emit('touch-event', { ...getPos(e), type: 'tap' }));
+  let dragging = false, lastPos = null;
+  phoneScreen.addEventListener('mousedown', (e) => { dragging = true; lastPos = getPos(e); });
+  phoneScreen.addEventListener('mousemove', (e) => { if (!dragging) return; const pos = getPos(e); socket.emit('touch-event', { type: 'swipe', from: lastPos, to: pos }); lastPos = pos; });
+  phoneScreen.addEventListener('mouseup', () => dragging = false);
+  function sendKey(key) { socket.emit('key-event', { key }); }
+</script>
+</body>
+</html>
